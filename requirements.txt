@@ -11,8 +11,8 @@ tensorflow
 safetensors
 toml
 voluptuous
-torch==2.0.1+cu118
-xformers==0.0.20
+torch
+torchvision
 triton
 lycoris_lora
 dadaptation
