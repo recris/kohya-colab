@@ -18,7 +18,4 @@ lycoris_lora
 dadaptation
 lion_pytorch
 bitsandbytes
-ninja
-setuptools
-wheel
 .
