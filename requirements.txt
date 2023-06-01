@@ -16,6 +16,6 @@ xformers==0.0.20
 torchvision
 triton
 lycoris_lora==0.1.4
-dadaptation==3.1
+dadaptation
 lion_pytorch
 .
