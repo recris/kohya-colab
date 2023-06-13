@@ -30,7 +30,8 @@ diff --git a/library/train_util.py b/library/train_util.py
  
 +    def load_mask(self, path):
 +        try:
-+            mask_path = path[:path.rindex('.')] + ".mask"
++            p = pathlib.Path(path)
++            mask_path = os.path.join(p.parent, 'mask', p.stem + '.png')
 +            mask = np.array(Image.open(mask_path))
 +            if len(mask.shape) > 2 and mask.max() <= 255:
 +                print(mask.shape)
