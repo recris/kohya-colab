@@ -1,4 +1,4 @@
-Subject: [PATCH] Add masked loss implementation
+Subject: [PATCH] add masked loss implementation
 ---
 Index: library/train_util.py
 IDEA additional info:
@@ -7,7 +7,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision eccd94f8a5d9e317ce43c52135cda61ddcc3d1ce)
++++ b/library/train_util.py	(revision 39382097618845ae543443d7d2bf02c6af7343d6)
 @@ -100,6 +100,8 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
@@ -17,14 +17,7 @@ diff --git a/library/train_util.py b/library/train_util.py
  
  
  class BucketManager:
-@@ -449,6 +451,7 @@
-         self.image_to_subset: Dict[str, Union[DreamBoothSubset, FineTuningSubset]] = {}
- 
-         self.replacements = {}
- 
-     def set_seed(self, seed):
-         self.seed = seed
-@@ -697,11 +700,31 @@
+@@ -697,11 +699,32 @@
          random.shuffle(self.buckets_indices)
          self.bucket_manager.shuffle()
  
@@ -163,7 +156,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision eccd94f8a5d9e317ce43c52135cda61ddcc3d1ce)
++++ b/train_network.py	(revision 39382097618845ae543443d7d2bf02c6af7343d6)
 @@ -11,6 +11,7 @@
  
  from tqdm import tqdm
@@ -172,7 +165,7 @@ diff --git a/train_network.py b/train_network.py
  from accelerate.utils import set_seed
  from diffusers import DDPMScheduler
  
-@@ -658,6 +659,24 @@
+@@ -658,6 +659,26 @@
                  else:
                      target = noise
  
@@ -198,3 +191,12 @@ diff --git a/train_network.py b/train_network.py
 +
                  loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="none")
                  loss = loss.mean([1, 2, 3])
+ 
+@@ -721,6 +742,7 @@
+             loss_total += current_loss
+             avr_loss = loss_total / len(loss_list)
+             logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
++
+             progress_bar.set_postfix(**logs)
+ 
+             if args.scale_weight_norms:
