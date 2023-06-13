@@ -113,8 +113,8 @@ diff --git a/library/train_util.py b/library/train_util.py
              if image_info.latents is not None:  # cache_latents=Trueの場合
 -                latents = image_info.latents if not subset.flip_aug or random.random() < 0.5 else image_info.latents_flipped
 +                rand_flip = random.random()
-+                latents = image_info.latents if not self.flip_aug or rand_flip < .5 else image_info.latents_flipped
-+                mask = image_info.mask if not self.flip_aug or rand_flip < .5 else image_info.mask_flipped
++                latents = image_info.latents if not subset.flip_aug or rand_flip < .5 else image_info.latents_flipped
++                mask = image_info.mask if not subset.flip_aug or rand_flip < .5 else image_info.mask_flipped
                  image = None
              elif image_info.latents_npz is not None:  # FineTuningDatasetまたはcache_latents_to_disk=Trueの場合
                  latents = self.load_latents_from_npz(image_info, subset.flip_aug and random.random() >= 0.5)
