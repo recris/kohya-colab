@@ -21,7 +21,6 @@ diff --git a/library/train_util.py b/library/train_util.py
          self.image_to_subset: Dict[str, Union[DreamBoothSubset, FineTuningSubset]] = {}
  
          self.replacements = {}
-+        self.mask_max_attention = 1
  
      def set_seed(self, seed):
          self.seed = seed
@@ -67,7 +66,7 @@ diff --git a/library/train_util.py b/library/train_util.py
              for info in batch:
                  image = self.load_image(info.absolute_path)
                  image = self.trim_and_resize_if_required(subset, image, info.bucket_reso, info.resized_size)
-+                mask = image[:, :, -1]  # grab alpha channel
++                mask = image[:, :, -1] / 255  # grab alpha channel
 +                image = image[:, :, :3]  # drop alpha channel
                  image = self.image_transforms(image)
                  images.append(image)
@@ -122,7 +121,7 @@ diff --git a/library/train_util.py b/library/train_util.py
              else:
                  # 画像を読み込み、必要ならcropする
                  img, face_cx, face_cy, face_w, face_h = self.load_image_with_face_info(subset, image_info.absolute_path)
-+                mask = img[:, :, -1] / (255 / self.mask_max_attention)  # grab alpha channel
++                mask = img[:, :, -1] / 255  # grab alpha channel
 +                img = img[:, :, :3]  # drop alpha channel
                  im_h, im_w = img.shape[0:2]
  
@@ -191,23 +190,10 @@ diff --git a/train_network.py b/train_network.py
 +                        mode="nearest",
 +                    )
 +
++                    mask = mask / mask.mean()
++
 +                    noise_pred = noise_pred * mask
 +                    target = target * mask
 +
                  loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="none")
                  loss = loss.mean([1, 2, 3])
- 
-@@ -720,7 +739,12 @@
-                 loss_list[step] = current_loss
-             loss_total += current_loss
-             avr_loss = loss_total / len(loss_list)
--            logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
-+
-+            if args.masked_loss and batch['masks'] is not None:
-+                logs = {"loss": avr_loss, "Batch Mask Average Weight": batch["masks"].float().mean().item()}  # , "lr": lr_scheduler.get_last_lr()[0]}
-+            else:
-+                logs = {"loss": avr_loss}
-+
-             progress_bar.set_postfix(**logs)
- 
-             if args.scale_weight_norms:
