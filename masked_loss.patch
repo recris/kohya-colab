@@ -7,7 +7,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision 3bfe44450cd894362b02c6e6a8823fff9dc30af2)
++++ b/library/train_util.py	(revision eccd94f8a5d9e317ce43c52135cda61ddcc3d1ce)
 @@ -100,6 +100,8 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
@@ -59,7 +59,47 @@ diff --git a/library/train_util.py b/library/train_util.py
          return img
  
      def trim_and_resize_if_required(self, subset: BaseSubset, image, reso, resized_size):
-@@ -913,6 +936,7 @@
+@@ -802,31 +825,37 @@
+         # iterate batches
+         for batch in tqdm(batches, smoothing=1, total=len(batches)):
+             images = []
++            masks = []
+             for info in batch:
+                 image = self.load_image(info.absolute_path)
+                 image = self.trim_and_resize_if_required(subset, image, info.bucket_reso, info.resized_size)
++                mask = image[:, :, -1]  # grab alpha channel
++                image = image[:, :, :3]  # drop alpha channel
+                 image = self.image_transforms(image)
+                 images.append(image)
++                masks.append(mask)
+ 
+             img_tensors = torch.stack(images, dim=0)
+             img_tensors = img_tensors.to(device=vae.device, dtype=vae.dtype)
+ 
+             latents = vae.encode(img_tensors).latent_dist.sample().to("cpu")
+ 
+-            for info, latent in zip(batch, latents):
++            for info, latent, mask in zip(batch, latents, masks):
+                 if cache_to_disk:
+                     np.savez(info.latents_npz, latent.float().numpy())
+                 else:
+                     info.latents = latent
++                    info.mask = mask
+ 
+             if subset.flip_aug:
+                 img_tensors = torch.flip(img_tensors, dims=[3])
+                 latents = vae.encode(img_tensors).latent_dist.sample().to("cpu")
+-                for info, latent in zip(batch, latents):
++                for info, latent, mask in zip(batch, latents, masks):
+                     if cache_to_disk:
+                         np.savez(info.latents_npz_flipped, latent.float().numpy())
+                     else:
+                         info.latents_flipped = latent
++                        info.mask_flipped = mask
+ 
+     def get_image_size(self, image_path):
+         image = Image.open(image_path)
+@@ -913,6 +942,7 @@
          input_ids_list = []
          latents_list = []
          images = []
@@ -67,7 +107,7 @@ diff --git a/library/train_util.py b/library/train_util.py
  
          for image_key in bucket[image_index : image_index + bucket_batch_size]:
              image_info = self.image_data[image_key]
-@@ -921,7 +945,9 @@
+@@ -921,7 +951,9 @@
  
              # image/latentsを処理する
              if image_info.latents is not None:  # cache_latents=Trueの場合
@@ -78,7 +118,7 @@ diff --git a/library/train_util.py b/library/train_util.py
                  image = None
              elif image_info.latents_npz is not None:  # FineTuningDatasetまたはcache_latents_to_disk=Trueの場合
                  latents = self.load_latents_from_npz(image_info, subset.flip_aug and random.random() >= 0.5)
-@@ -930,6 +956,8 @@
+@@ -930,6 +962,8 @@
              else:
                  # 画像を読み込み、必要ならcropする
                  img, face_cx, face_cy, face_w, face_h = self.load_image_with_face_info(subset, image_info.absolute_path)
@@ -87,7 +127,7 @@ diff --git a/library/train_util.py b/library/train_util.py
                  im_h, im_w = img.shape[0:2]
  
                  if self.enable_bucket:
-@@ -960,8 +988,10 @@
+@@ -960,8 +994,10 @@
  
                  latents = None
                  image = self.image_transforms(img)  # -1.0~1.0のtorch.Tensorになる
@@ -98,7 +138,7 @@ diff --git a/library/train_util.py b/library/train_util.py
              latents_list.append(latents)
  
              caption = self.process_caption(subset, image_info.caption)
-@@ -998,7 +1028,7 @@
+@@ -998,7 +1034,7 @@
          else:
              images = None
          example["images"] = images
@@ -107,7 +147,7 @@ diff --git a/library/train_util.py b/library/train_util.py
          example["latents"] = torch.stack(latents_list) if latents_list[0] is not None else None
          example["captions"] = captions
  
-@@ -2388,6 +2418,8 @@
+@@ -2388,6 +2424,8 @@
          "--bucket_no_upscale", action="store_true", help="make bucket for each image without upscaling / 画像を拡大せずbucketを作成します"
      )
  
@@ -123,7 +163,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision 3bfe44450cd894362b02c6e6a8823fff9dc30af2)
++++ b/train_network.py	(revision eccd94f8a5d9e317ce43c52135cda61ddcc3d1ce)
 @@ -11,6 +11,7 @@
  
  from tqdm import tqdm
