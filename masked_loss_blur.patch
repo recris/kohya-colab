@@ -188,7 +188,7 @@ diff --git a/train_network.py b/train_network.py
 +
 +                    mask = mask / mask.mean()
 +
-+                    blur = torchvision.transforms.GaussianBlur(5, sigma=0.5)
++                    blur = torchvision.transforms.GaussianBlur(9, sigma=0.65)
 +
 +                    noise_pred = blur(noise_pred) * mask
 +                    target = blur(target) * mask
