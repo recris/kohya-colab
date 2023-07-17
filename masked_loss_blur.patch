@@ -8,17 +8,18 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision ea6ac4290bedb98289ca86f2433e5afaf4db20cf)
-@@ -100,6 +100,8 @@
++++ b/library/train_util.py	(revision 3c6be796f82ce4942faadc3b2e44ec9f6d6ab384)
+@@ -100,6 +100,9 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
          self.latents_npz_flipped: str = None
 +        self.mask: np.ndarray = None
 +        self.mask_flipped: np.ndarray = None
++        self.step_range: Tuple[float, float] = None
  
  
  class BucketManager:
-@@ -697,11 +699,32 @@
+@@ -697,11 +700,32 @@
          random.shuffle(self.buckets_indices)
          self.bucket_manager.shuffle()
  
@@ -53,7 +54,7 @@ diff --git a/library/train_util.py b/library/train_util.py
          return img
  
      def trim_and_resize_if_required(self, subset: BaseSubset, image, reso, resized_size):
-@@ -802,31 +825,37 @@
+@@ -802,31 +826,37 @@
          # iterate batches
          for batch in tqdm(batches, smoothing=1, total=len(batches)):
              images = []
@@ -93,15 +94,16 @@ diff --git a/library/train_util.py b/library/train_util.py
  
      def get_image_size(self, image_path):
          image = Image.open(image_path)
-@@ -913,6 +942,7 @@
+@@ -913,6 +943,8 @@
          input_ids_list = []
          latents_list = []
          images = []
 +        masks = []
++        step_ranges = []
  
          for image_key in bucket[image_index : image_index + bucket_batch_size]:
              image_info = self.image_data[image_key]
-@@ -921,7 +951,9 @@
+@@ -921,7 +953,9 @@
  
              # image/latentsを処理する
              if image_info.latents is not None:  # cache_latents=Trueの場合
@@ -112,7 +114,7 @@ diff --git a/library/train_util.py b/library/train_util.py
                  image = None
              elif image_info.latents_npz is not None:  # FineTuningDatasetまたはcache_latents_to_disk=Trueの場合
                  latents = self.load_latents_from_npz(image_info, subset.flip_aug and random.random() >= 0.5)
-@@ -930,6 +962,8 @@
+@@ -930,6 +964,8 @@
              else:
                  # 画像を読み込み、必要ならcropする
                  img, face_cx, face_cy, face_w, face_h = self.load_image_with_face_info(subset, image_info.absolute_path)
@@ -121,7 +123,7 @@ diff --git a/library/train_util.py b/library/train_util.py
                  im_h, im_w = img.shape[0:2]
  
                  if self.enable_bucket:
-@@ -960,8 +994,10 @@
+@@ -960,9 +996,12 @@
  
                  latents = None
                  image = self.image_transforms(img)  # -1.0~1.0のtorch.Tensorになる
@@ -130,9 +132,11 @@ diff --git a/library/train_util.py b/library/train_util.py
              images.append(image)
 +            masks.append(torch.tensor(mask))
              latents_list.append(latents)
++            step_ranges.append(image_info.step_range)
  
              caption = self.process_caption(subset, image_info.caption)
-@@ -998,7 +1034,7 @@
+             if self.XTI_layers:
+@@ -998,9 +1037,10 @@
          else:
              images = None
          example["images"] = images
@@ -140,8 +144,22 @@ diff --git a/library/train_util.py b/library/train_util.py
 +        example["masks"] = torch.stack(masks) if masks[0] is not None else None
          example["latents"] = torch.stack(latents_list) if latents_list[0] is not None else None
          example["captions"] = captions
++        example["step_ranges"] = step_ranges
  
-@@ -2388,6 +2424,8 @@
+         if self.debug_dataset:
+             example["image_keys"] = bucket[image_index : image_index + self.batch_size]
+@@ -1267,6 +1307,10 @@
+                 image_info = ImageInfo(image_key, subset.num_repeats, caption, False, abs_path)
+                 image_info.image_size = img_md.get("train_resolution")
+ 
++                min_step = img_md.get("min-step") or 0.0
++                max_step = img_md.get("max-step") or 1.0
++                image_info.step_range = (min_step, max_step)
++
+                 if not subset.color_aug and not subset.random_crop:
+                     # if npz exists, use them
+                     image_info.latents_npz, image_info.latents_npz_flipped = self.image_key_to_npz_file(subset, image_key)
+@@ -2388,6 +2432,8 @@
          "--bucket_no_upscale", action="store_true", help="make bucket for each image without upscaling / 画像を拡大せずbucketを作成します"
      )
  
@@ -157,7 +175,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision 85e26c60f3390f4428d5754c2f033648b2de9722)
++++ b/train_network.py	(revision 3c6be796f82ce4942faadc3b2e44ec9f6d6ab384)
 @@ -11,6 +11,8 @@
  
  from tqdm import tqdm
@@ -167,21 +185,27 @@ diff --git a/train_network.py b/train_network.py
  from accelerate.utils import set_seed
  from diffusers import DDPMScheduler
  
-@@ -641,9 +643,12 @@
+@@ -641,9 +643,17 @@
                  elif args.multires_noise_iterations:
                      noise = pyramid_noise_like(noise, latents.device, args.multires_noise_iterations, args.multires_noise_discount)
  
-+                max_timestep = noise_scheduler.config.num_train_timesteps // 2
-+
-                 # Sample a random timestep for each image
+-                # Sample a random timestep for each image
 -                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
-+                timesteps = torch.randint(0, max_timestep, (b_size,), device=latents.device)
++                num_steps = noise_scheduler.config.num_train_timesteps
++
++                if batch['step_ranges'] is not None:
++                    timesteps = [torch.randint(int(s[0] * num_steps), int(s[1] * num_steps), (1,)) for s in batch['step_ranges']]
++                    timesteps = torch.Tensor(timesteps, device=latents.device)
++                else:
++                    # Sample a random timestep for each image
++                    timesteps = torch.randint(0, num_steps, (b_size,), device=latents.device)
++
                  timesteps = timesteps.long()
 +
                  # Add noise to the latents according to the noise magnitude at each timestep
                  # (this is the forward diffusion process)
                  noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-@@ -658,6 +663,28 @@
+@@ -658,6 +668,26 @@
                  else:
                      target = noise
  
@@ -202,15 +226,13 @@ diff --git a/train_network.py b/train_network.py
 +
 +                    mask = mask / mask.mean()
 +
-+                    #blur = torchvision.transforms.GaussianBlur(5, sigma=0.5)
-+
 +                    noise_pred = noise_pred * mask
 +                    target = target * mask
 +
                  loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="none")
                  loss = loss.mean([1, 2, 3])
  
-@@ -721,6 +748,7 @@
+@@ -721,6 +751,7 @@
              loss_total += current_loss
              avr_loss = loss_total / len(loss_list)
              logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
