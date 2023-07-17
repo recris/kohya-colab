@@ -8,14 +8,14 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision 3c6be796f82ce4942faadc3b2e44ec9f6d6ab384)
++++ b/library/train_util.py	(revision d370a82419fb0a7ce2357adfdcdd5bce54b8fc42)
 @@ -100,6 +100,9 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
          self.latents_npz_flipped: str = None
 +        self.mask: np.ndarray = None
 +        self.mask_flipped: np.ndarray = None
-+        self.step_range: Tuple[float, float] = None
++        self.loss_quality: float = None
  
  
  class BucketManager:
@@ -99,7 +99,7 @@ diff --git a/library/train_util.py b/library/train_util.py
          latents_list = []
          images = []
 +        masks = []
-+        step_ranges = []
++        quality_values = []
  
          for image_key in bucket[image_index : image_index + bucket_batch_size]:
              image_info = self.image_data[image_key]
@@ -132,7 +132,7 @@ diff --git a/library/train_util.py b/library/train_util.py
              images.append(image)
 +            masks.append(torch.tensor(mask))
              latents_list.append(latents)
-+            step_ranges.append(image_info.step_range)
++            quality_values.append(image_info.loss_quality)
  
              caption = self.process_caption(subset, image_info.caption)
              if self.XTI_layers:
@@ -144,22 +144,19 @@ diff --git a/library/train_util.py b/library/train_util.py
 +        example["masks"] = torch.stack(masks) if masks[0] is not None else None
          example["latents"] = torch.stack(latents_list) if latents_list[0] is not None else None
          example["captions"] = captions
-+        example["step_ranges"] = step_ranges
++        example["quality_values"] = quality_values
  
          if self.debug_dataset:
              example["image_keys"] = bucket[image_index : image_index + self.batch_size]
-@@ -1267,6 +1307,10 @@
+@@ -1266,6 +1306,7 @@
+ 
                  image_info = ImageInfo(image_key, subset.num_repeats, caption, False, abs_path)
                  image_info.image_size = img_md.get("train_resolution")
++                image_info.loss_quality = img_md.get("quality") or 1.0
  
-+                min_step = img_md.get("min-step") or 0.0
-+                max_step = img_md.get("max-step") or 1.0
-+                image_info.step_range = (min_step, max_step)
-+
                  if not subset.color_aug and not subset.random_crop:
                      # if npz exists, use them
-                     image_info.latents_npz, image_info.latents_npz_flipped = self.image_key_to_npz_file(subset, image_key)
-@@ -2388,6 +2432,8 @@
+@@ -2388,6 +2429,8 @@
          "--bucket_no_upscale", action="store_true", help="make bucket for each image without upscaling / 画像を拡大せずbucketを作成します"
      )
  
@@ -175,7 +172,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision 3c6be796f82ce4942faadc3b2e44ec9f6d6ab384)
++++ b/train_network.py	(revision d370a82419fb0a7ce2357adfdcdd5bce54b8fc42)
 @@ -11,6 +11,8 @@
  
  from tqdm import tqdm
@@ -185,30 +182,23 @@ diff --git a/train_network.py b/train_network.py
  from accelerate.utils import set_seed
  from diffusers import DDPMScheduler
  
-@@ -641,9 +643,17 @@
-                 elif args.multires_noise_iterations:
-                     noise = pyramid_noise_like(noise, latents.device, args.multires_noise_iterations, args.multires_noise_discount)
- 
--                # Sample a random timestep for each image
--                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
-+                num_steps = noise_scheduler.config.num_train_timesteps
-+
-+                if batch['step_ranges'] is not None:
-+                    timesteps = [torch.randint(int(s[0] * num_steps), int(s[1] * num_steps), (1,)) for s in batch['step_ranges']]
-+                    timesteps = torch.tensor(timesteps, device=latents.device)
-+                else:
-+                    # Sample a random timestep for each image
-+                    timesteps = torch.randint(0, num_steps, (b_size,), device=latents.device)
-+
+@@ -644,6 +646,7 @@
+                 # Sample a random timestep for each image
+                 timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
                  timesteps = timesteps.long()
 +
                  # Add noise to the latents according to the noise magnitude at each timestep
                  # (this is the forward diffusion process)
                  noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-@@ -658,6 +668,26 @@
+@@ -658,6 +661,31 @@
                  else:
                      target = noise
  
++                if batch['quality_values'] is not None:
++                    blur = [torchvision.transforms.GaussianBlur(9, sigma=0.7-0.5*q) for q in batch['quality_values']]
++                    noise_pred = torch.cat([b(n) for n, b in zip(torch.split(noise_pred, 1), blur)])
++                    target = torch.cat([b(n) for n, b in zip(torch.split(target, 1), blur)])
++
 +                if args.masked_loss and batch['masks'] is not None:
 +                    mask = (
 +                        batch['masks']
@@ -232,7 +222,7 @@ diff --git a/train_network.py b/train_network.py
                  loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="none")
                  loss = loss.mean([1, 2, 3])
  
-@@ -721,6 +751,7 @@
+@@ -721,6 +749,7 @@
              loss_total += current_loss
              avr_loss = loss_total / len(loss_list)
              logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
