@@ -195,7 +195,7 @@ diff --git a/train_network.py b/train_network.py
 +
 +                if batch['step_ranges'] is not None:
 +                    timesteps = [torch.randint(int(s[0] * num_steps), int(s[1] * num_steps), (1,)) for s in batch['step_ranges']]
-+                    timesteps = torch.Tensor(timesteps, device=latents.device)
++                    timesteps = torch.tensor(timesteps, device=latents.device)
 +                else:
 +                    # Sample a random timestep for each image
 +                    timesteps = torch.randint(0, num_steps, (b_size,), device=latents.device)
