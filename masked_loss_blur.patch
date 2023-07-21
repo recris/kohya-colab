@@ -8,7 +8,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision f643d4ed57e24c46f41ec774d946dabb8c32c81b)
++++ b/library/train_util.py	(revision ad998f56741161269f4bde18920fe80d2212bbed)
 @@ -100,6 +100,9 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
@@ -174,7 +174,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision f643d4ed57e24c46f41ec774d946dabb8c32c81b)
++++ b/train_network.py	(revision ad998f56741161269f4bde18920fe80d2212bbed)
 @@ -11,6 +11,8 @@
  
  from tqdm import tqdm
@@ -199,8 +199,8 @@ diff --git a/train_network.py b/train_network.py
 +                qvl = batch['quality_values']
 +                if qvl is not None:
 +                    blur = [torchvision.transforms.GaussianBlur(9, sigma=0.7-0.5*q) for q in qvl]
-+                    noise_pred = torch.cat([b(n) for n, b in zip(torch.split(noise_pred, 1), blur)])
-+                    target = torch.cat([b(n) for n, b in zip(torch.split(target, 1), blur)])
++                    noise_pred = torch.cat([(b(n) if q < 1.0 else n) for n, b, q in zip(torch.split(noise_pred, 1), blur, qvl)])
++                    target = torch.cat([(b(n) if q < 1.0 else n) for n, b, q in zip(torch.split(target, 1), blur, qvl)])
 +
 +                if args.masked_loss and batch['masks'] is not None:
 +                    mask = (
