@@ -8,7 +8,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision bf50c2069c51e94fa10c581cc79d1f8be92ae214)
++++ b/library/train_util.py	(revision 71d9a0ea48fd718f61d6f22ef5ff8bd19f3b03bd)
 @@ -100,6 +100,10 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
@@ -178,7 +178,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision bf50c2069c51e94fa10c581cc79d1f8be92ae214)
++++ b/train_network.py	(revision 71d9a0ea48fd718f61d6f22ef5ff8bd19f3b03bd)
 @@ -11,6 +11,8 @@
  
  from tqdm import tqdm
@@ -199,7 +199,7 @@ diff --git a/train_network.py b/train_network.py
 +
 +                steps = noise_scheduler.config.num_train_timesteps
 +                timesteps = [torch.randint(int(start * steps), int(end * steps), (1,)) for (start, end) in batch['loss_ranges']]
-+                timesteps = torch.LongTensor(timesteps, device=latents.device)
++                timesteps = torch.tensor(timesteps).to(dtype=torch.int64, device=latents.device)
 +
                  # Add noise to the latents according to the noise magnitude at each timestep
                  # (this is the forward diffusion process)
