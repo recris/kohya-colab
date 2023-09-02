@@ -8,18 +8,19 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision ad998f56741161269f4bde18920fe80d2212bbed)
-@@ -100,6 +100,9 @@
++++ b/library/train_util.py	(revision 53d5ff0c572f0f087c4d96a87e2087a92616f16b)
+@@ -100,6 +100,10 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
          self.latents_npz_flipped: str = None
 +        self.mask: np.ndarray = None
 +        self.mask_flipped: np.ndarray = None
-+        self.loss_quality: float = None
++        self.loss_start_step: float = None
++        self.loss_end_step: float = None
  
  
  class BucketManager:
-@@ -697,11 +700,32 @@
+@@ -697,11 +701,32 @@
          random.shuffle(self.buckets_indices)
          self.bucket_manager.shuffle()
  
@@ -54,7 +55,7 @@ diff --git a/library/train_util.py b/library/train_util.py
          return img
  
      def trim_and_resize_if_required(self, subset: BaseSubset, image, reso, resized_size):
-@@ -802,31 +826,37 @@
+@@ -802,31 +827,37 @@
          # iterate batches
          for batch in tqdm(batches, smoothing=1, total=len(batches)):
              images = []
@@ -94,18 +95,19 @@ diff --git a/library/train_util.py b/library/train_util.py
  
      def get_image_size(self, image_path):
          image = Image.open(image_path)
-@@ -913,15 +943,19 @@
+@@ -913,15 +944,20 @@
          input_ids_list = []
          latents_list = []
          images = []
 +        masks = []
-+        quality_values = []
++        loss_start_steps = []
++        loss_end_steps = []
  
          for image_key in bucket[image_index : image_index + bucket_batch_size]:
              image_info = self.image_data[image_key]
              subset = self.image_to_subset[image_key]
 -            loss_weights.append(self.prior_loss_weight if image_info.is_reg else 1.0)
-+            loss_weights.append(self.prior_loss_weight if image_info.is_reg else (1 / math.sqrt(image_info.loss_quality)))
++            loss_weights.append(self.prior_loss_weight if image_info.is_reg else 1)
  
              # image/latentsを処理する
              if image_info.latents is not None:  # cache_latents=Trueの場合
@@ -116,7 +118,7 @@ diff --git a/library/train_util.py b/library/train_util.py
                  image = None
              elif image_info.latents_npz is not None:  # FineTuningDatasetまたはcache_latents_to_disk=Trueの場合
                  latents = self.load_latents_from_npz(image_info, subset.flip_aug and random.random() >= 0.5)
-@@ -930,6 +964,8 @@
+@@ -930,6 +966,8 @@
              else:
                  # 画像を読み込み、必要ならcropする
                  img, face_cx, face_cy, face_w, face_h = self.load_image_with_face_info(subset, image_info.absolute_path)
@@ -125,7 +127,7 @@ diff --git a/library/train_util.py b/library/train_util.py
                  im_h, im_w = img.shape[0:2]
  
                  if self.enable_bucket:
-@@ -960,9 +996,12 @@
+@@ -960,9 +998,13 @@
  
                  latents = None
                  image = self.image_transforms(img)  # -1.0~1.0のtorch.Tensorになる
@@ -134,11 +136,12 @@ diff --git a/library/train_util.py b/library/train_util.py
              images.append(image)
 +            masks.append(torch.tensor(mask))
              latents_list.append(latents)
-+            quality_values.append(image_info.loss_quality)
++            loss_start_steps.append(image_info.loss_start_step)
++            loss_end_steps.append(image_info.loss_end_step)
  
              caption = self.process_caption(subset, image_info.caption)
              if self.XTI_layers:
-@@ -998,9 +1037,10 @@
+@@ -998,9 +1040,10 @@
          else:
              images = None
          example["images"] = images
@@ -146,19 +149,20 @@ diff --git a/library/train_util.py b/library/train_util.py
 +        example["masks"] = torch.stack(masks) if masks[0] is not None else None
          example["latents"] = torch.stack(latents_list) if latents_list[0] is not None else None
          example["captions"] = captions
-+        example["quality_values"] = quality_values
++        example["loss_ranges"] = list(zip(loss_start_steps, loss_end_steps))
  
          if self.debug_dataset:
              example["image_keys"] = bucket[image_index : image_index + self.batch_size]
-@@ -1266,6 +1306,7 @@
+@@ -1266,6 +1309,8 @@
  
                  image_info = ImageInfo(image_key, subset.num_repeats, caption, False, abs_path)
                  image_info.image_size = img_md.get("train_resolution")
-+                image_info.loss_quality = img_md.get("quality") or 1.0
++                image_info.loss_start_step = img_md.get("loss_start") or 0.0
++                image_info.loss_end_step = img_md.get("loss_end") or 1.0
  
                  if not subset.color_aug and not subset.random_crop:
                      # if npz exists, use them
-@@ -2388,6 +2429,8 @@
+@@ -2388,6 +2433,8 @@
          "--bucket_no_upscale", action="store_true", help="make bucket for each image without upscaling / 画像を拡大せずbucketを作成します"
      )
  
@@ -174,7 +178,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision ad998f56741161269f4bde18920fe80d2212bbed)
++++ b/train_network.py	(revision 53d5ff0c572f0f087c4d96a87e2087a92616f16b)
 @@ -11,6 +11,8 @@
  
  from tqdm import tqdm
@@ -184,23 +188,27 @@ diff --git a/train_network.py b/train_network.py
  from accelerate.utils import set_seed
  from diffusers import DDPMScheduler
  
-@@ -644,6 +646,7 @@
+@@ -642,8 +644,13 @@
+                     noise = pyramid_noise_like(noise, latents.device, args.multires_noise_iterations, args.multires_noise_discount)
+ 
                  # Sample a random timestep for each image
-                 timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
-                 timesteps = timesteps.long()
+-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
+-                timesteps = timesteps.long()
++                #timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
++                #timesteps = timesteps.long()
++
++                steps = noise_scheduler.config.num_train_timesteps
++                timesteps = [torch.randint(int(start * steps), int(end * steps), (1,), device=latents.device) for (start, end) in batch['loss_ranges']]
++                timesteps = torch.LongTensor(timesteps)
 +
                  # Add noise to the latents according to the noise magnitude at each timestep
                  # (this is the forward diffusion process)
                  noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-@@ -658,6 +661,32 @@
+@@ -658,6 +665,28 @@
                  else:
                      target = noise
  
-+                qvl = batch['quality_values']
-+                if qvl is not None:
-+                    blur = [torchvision.transforms.GaussianBlur(9, sigma=0.7-0.5*q) for q in qvl]
-+                    noise_pred = torch.cat([(b(n) if q < 1.0 else n) for n, b, q in zip(torch.split(noise_pred, 1), blur, qvl)])
-+                    target = torch.cat([(b(n) if q < 1.0 else n) for n, b, q in zip(torch.split(target, 1), blur, qvl)])
++
 +
 +                if args.masked_loss and batch['masks'] is not None:
 +                    mask = (
