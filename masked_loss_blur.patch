@@ -8,7 +8,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/library/train_util.py b/library/train_util.py
 --- a/library/train_util.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/library/train_util.py	(revision 03f0ad3d2a3087a16f90f96256ada8b091e36525)
++++ b/library/train_util.py	(revision 42276a8b899fec8355ecf20c2a95b34ad1dca08e)
 @@ -100,6 +100,10 @@
          self.latents_flipped: torch.Tensor = None
          self.latents_npz: str = None
@@ -178,7 +178,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/train_network.py b/train_network.py
 --- a/train_network.py	(revision 89c30334016a27f1d890466151a61a46d8d1545e)
-+++ b/train_network.py	(revision 03f0ad3d2a3087a16f90f96256ada8b091e36525)
++++ b/train_network.py	(revision 42276a8b899fec8355ecf20c2a95b34ad1dca08e)
 @@ -11,6 +11,8 @@
  
  from tqdm import tqdm
@@ -196,7 +196,7 @@ diff --git a/train_network.py b/train_network.py
                  # Add noise to the latents according to the noise magnitude at each timestep
                  # (this is the forward diffusion process)
                  noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-@@ -658,6 +661,33 @@
+@@ -658,6 +661,34 @@
                  else:
                      target = noise
  
@@ -223,6 +223,7 @@ diff --git a/train_network.py b/train_network.py
 +                    c = torch.minimum(torch.ones_like(mask), b)
 +
 +                    mask = torch.where(mask > 0.0, c, 0.0)
++                    mask = mask / mask.mean()
 +
 +                    noise_pred = noise_pred * mask
 +                    target = target * mask
@@ -230,7 +231,7 @@ diff --git a/train_network.py b/train_network.py
                  loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="none")
                  loss = loss.mean([1, 2, 3])
  
-@@ -721,6 +751,7 @@
+@@ -721,6 +752,7 @@
              loss_total += current_loss
              avr_loss = loss_total / len(loss_list)
              logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
